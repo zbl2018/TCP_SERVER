@@ -2,6 +2,7 @@
 //==========初始化静态成员对象=====================
 MyDB *ev_tcpServer::My_db=new MyDB();
 car *ev_tcpServer::CarObject=new car;
+MyJson *ev_tcpServer::my_json = new MyJson;
 //==============================================
 ev_tcpServer::ev_tcpServer(string db_ip,string db_user_name,string db_pwd,string db_name){
     //初始化并连接数据库
@@ -159,11 +160,11 @@ void ev_tcpServer::recv_socket_cb_local(struct ev_loop *loop,ev_io *w, int reven
 {
     printf("welcome to local recv!\n");
     char data_buf[MAX_BUF_LEN] = {0};
-    unsigned char head_buf[6];
+    unsigned char head_buf[HEAD_LEN];
     int ret_len = 0;
     int data_len=256;
     int socket_fd;
-    char control_info[MAX_BUF_LEN+6];
+    char control_info[MAX_BUF_LEN+HEAD_LEN];
     do{
         //接收tcp流并解决粘包问题
         //1.获取报文首部
@@ -191,9 +192,9 @@ void ev_tcpServer::recv_socket_cb_local(struct ev_loop *loop,ev_io *w, int reven
         {
             printf("%d,recv message:\n'%s'\n",w->fd,data_buf);
             //控制小车
-            memcpy(control_info,head_buf,6);
-            memcpy(control_info+6,data_buf,data_len); 
-            if(send(socket_fd,control_info,data_len+6,MSG_NOSIGNAL)){
+            memcpy(control_info,head_buf,HEAD_LEN);
+            memcpy(control_info+HEAD_LEN,data_buf,data_len); 
+            if(send(socket_fd,control_info,data_len+HEAD_LEN+1,MSG_NOSIGNAL)){
                 printf("send control_info successfully!\n");
             }else{
                 printf("fail to send control_info!\n");
@@ -218,57 +219,103 @@ void ev_tcpServer::recv_socket_cb_local(struct ev_loop *loop,ev_io *w, int reven
 void ev_tcpServer::recv_socket_cb_net(struct ev_loop *loop,ev_io *w, int revents)
 {
     char data_buf[MAX_BUF_LEN] = {0};
-    unsigned char head_buf[6];
+    unsigned char head_buf[HEAD_LEN];
     int ret_len = 0;
     int data_len=256;
-    char sql[200];
-    int port = ((watcher_data*)(w->data))->client_port;
+    // char sql[200];
+    // int port = ((watcher_data*)(w->data))->client_port;
     bool res_flag=false;//回复客户端标志位 false：不用回复
     do{
         //接收tcp流并解决粘包问题
-        //1.获取报文首部
-        ret_len = recv(w->fd,head_buf,HEAD_LEN,MSG_WAITALL);
-        //cout<<"hex:"<<hex<<head_buf<<endl;
-        if(ret_len==0||ret_len<0){
-             printf("remote socket closed 1\n");
-             break;
-        }
-        else data_len = bytesToInt(head_buf+2,4);//后四个字节为报文数据部分长度
-        cout<<"length:"<<data_len<<endl;
-        //2.数据部分长度大于接收缓存的最大上限则主动关闭与client的链接
-        if(data_len>MAX_BUF_LEN)
-        {
-            printf("buffer overflow \n");
-            break;
-        }
-        //3.获取数据部分
-        ret_len = recv(w->fd,data_buf,data_len, MSG_WAITALL);
-        if(ret_len > 0)
-        {
-            printf("%d,recv message:\n'%s'\n",w->fd,data_buf);
-            res_flag=deal_recv_info_net(w,data_buf);
-            //回复客户端
-            if(res_flag)
-            {
-                //遵循先读后写的流程，下一次轮询将监听写事件，回复net_node
-                ev_io_stop(loop,w);
-                ev_io_init(w,write_socket_cb,w->fd,EV_WRITE);
-                ev_io_start(loop,w);
-                return;
-            }
-            else {
-                //不用回复客户端，继续接收客户端信息
-            }            
-            return;
-        }
-        else{
-            printf("remote socket closed 2\n"); //客户端断开链接
-            break;
-        }
-        if(errno == EAGAIN ||errno == EWOULDBLOCK){
-            continue;
-        }
-        break;
+        //1.获取报文首部1
+        // if(!((watcher_data*)(w->data))->first_flag)
+        // {
+        //     ((watcher_data*)(w->data))->first_flag=true;
+        //     ret_len = recv(w->fd,head_buf,HEAD_LEN,MSG_WAITALL);
+        //     if(ret_len==0||ret_len<0){
+        //      printf("remote socket closed 1\n");
+        //      break;
+        //     }
+        //     else {
+        //         data_len = bytesToInt(head_buf+5,1);
+        //         if(data_len>MAX_BUF_LEN)
+        //         {
+        //             printf("buffer overflow2 \n");
+        //             break;
+        //         }
+        //         ret_len = recv(w->fd,data_buf,data_len, MSG_WAITALL);
+        //         if(ret_len > 0)
+        //         {
+        //             printf("%d,recv message:\n'%s'\n",w->fd,data_buf);
+        //             //send(w->fd,data_buf,data_len+1,MSG_NOSIGNAL);
+        //             //res_flag=deal_recv_info_net(w,data_buf,head_buf);
+        //             //回复客户端
+        //             // if(res_flag)
+        //             // {
+        //             //     //遵循先读后写的流程，下一次轮询将监听写事件，回复net_node
+        //             //     ev_io_stop(loop,w);
+        //             //     ev_io_init(w,write_socket_cb,w->fd,EV_WRITE);
+        //             //     ev_io_start(loop,w);
+        //             //     return;
+        //             // }
+        //             // else {
+        //             //     //不用回复客户端，继续接收客户端信息
+        //             // }            
+        //             return;
+        //         }
+        //         else{
+        //             printf("remote socket closed 2\n"); //客户端断开链接
+        //             break;
+        //         }
+        //     }
+        // }
+        // else {
+                //1.获取报文首部2
+                ret_len = recv(w->fd,head_buf,HEAD_LEN,MSG_WAITALL);
+                //cout<<"hex:"<<hex<<head_buf<<endl;
+                if(ret_len==0||ret_len<0){
+                    printf("remote socket closed 1\n");
+                    break;
+                }
+                else data_len = bytesToInt(head_buf+2,4);//后四个字节为报文数据部分长度
+                cout<<"length:"<<data_len<<endl;
+                //2.数据部分长度大于接收缓存的最大上限则主动关闭与client的链接
+                if(data_len>MAX_BUF_LEN)
+                {
+                    printf("buffer overflow \n");
+                    break;
+                }
+                //3.获取数据部分
+                ret_len = recv(w->fd,data_buf,data_len, MSG_WAITALL);
+                if(ret_len > 0)
+                {
+                    data_buf[data_len]='\0';
+                    printf("%d,recv message:\n'%s'\n",w->fd,data_buf);
+                    //send(w->fd,data_buf,data_len+1,MSG_NOSIGNAL);
+                    res_flag=deal_recv_info_net(w,data_buf,head_buf);
+                    //回复客户端
+                    // if(res_flag)
+                    // {
+                    //     //遵循先读后写的流程，下一次轮询将监听写事件，回复net_node
+                    //     ev_io_stop(loop,w);
+                    //     ev_io_init(w,write_socket_cb,w->fd,EV_WRITE);
+                    //     ev_io_start(loop,w);
+                    //     return;
+                    // }
+                    // else {
+                    //     //不用回复客户端，继续接收客户端信息
+                    // }            
+                    return;
+                }
+                else{
+                    printf("remote socket closed 2\n"); //客户端断开链接
+                    break;
+                }
+                if(errno == EAGAIN ||errno == EWOULDBLOCK){
+                    continue;
+                }
+                break;
+               // }  
     }while(1);
     //销毁链接
     close(w->fd);
@@ -279,17 +326,17 @@ void ev_tcpServer::recv_socket_cb_net(struct ev_loop *loop,ev_io *w, int revents
 void ev_tcpServer::write_socket_cb(struct ev_loop *loop,ev_io *w, int revents)
 {
     char data_buf[MAX_BUF_LEN] = {0};
-    char info[MAX_BUF_LEN+6] ={0};  
-    byte *head =new byte[6];
+    char info[MAX_BUF_LEN+HEAD_LEN] ={0};  
+    byte *head =new byte[HEAD_LEN];
 
     memset(head,0,sizeof(head));
     memcpy(data_buf,w->data,strlen(((watcher_data*)w->data)->data_buf));
     //创建报文首部长度(head 3-6字节存储长度)
     memcpy(head+2,intToBytes(strlen((data_buf))+1,4),4);
     //创建完整报文
-    memcpy(info,head,6);
-    memcpy(info+6,data_buf,strlen(data_buf)+1);
-    int send_status=send(w->fd,info,strlen(data_buf)+7,MSG_NOSIGNAL);
+    memcpy(info,head,HEAD_LEN);
+    memcpy(info+HEAD_LEN,data_buf,strlen(data_buf)+1);
+    int send_status=send(w->fd,info,strlen(data_buf)+HEAD_LEN+1,MSG_NOSIGNAL);
     if(send_status<0){
         printf("fail to response client! The socket id is %d ",w->fd);
         //sleep(1);
@@ -301,8 +348,85 @@ void ev_tcpServer::write_socket_cb(struct ev_loop *loop,ev_io *w, int revents)
     ev_io_init(w,recv_socket_cb_net,w->fd,EV_READ);
     ev_io_start(loop,w);
 }
-int ev_tcpServer::deal_recv_info_net(ev_io *w,string data_buff){
-    string action = decodejson(data_buff,1);
+int ev_tcpServer::deal_recv_info_net(ev_io *w,string data_buff,byte head[]){
+    int ws_id;
+    char info[MAX_BUF_LEN+HEAD_LEN];
+    int data_len = data_buff.length();
+    cout<<"len:"<<data_len<<endl;
+    //将json数据解析
+    if(my_json->decodejson(data_buff)==RES_SUCC)
+    {
+        //cout<<"json:"<<my_json->action_type<<endl;
+        //if(my_json->action).compare()
+        switch(my_json->action_type){
+            case CAR_STATUS :{
+
+            }
+            case PLANPATH_RES :{
+                //收到规划路径，转发给web端显示
+                //从数据库获取ws_id
+                ws_id = GetWs_connectID(w->fd);
+                if(ws_id==RES_UNEXIST){
+                    printf("the ws_id isn't exist!\n");
+                    return RES_FAIL;
+                }
+                //cout<<"ws_id1:"<<ws_id<<endl;
+                memcpy(head,intToBytes(ws_id,2),2);
+                cout<<"head:"<<(short)head[0] << " " << (short)head[1] << endl;
+                memcpy(head+2,intToBytes(data_len,4),4);
+                
+                //cout<<"ws_id4:"<<bytesToInt(head,2)<<endl;
+                memcpy(info,head,HEAD_LEN);
+                memcpy(info+HEAD_LEN,data_buff.c_str(),data_len);
+                for(int i=0;i<6;i++){
+                    cout<<hex<<(int)info[i]<<endl;
+                }
+                send(WS_TCP_CON_ID,info,data_len+HEAD_LEN,MSG_NOSIGNAL);
+                return RES_SUCC;
+            }
+            case PointMove_RES:{
+
+            }
+            case RosState_RES :{
+                ws_id = GetWs_connectID(w->fd);
+                if(ws_id==RES_UNEXIST){
+                    printf("the ws_id isn't exist!\n");
+                    return RES_FAIL;
+                }
+                cout<<"ws_id2:"<<ws_id<<endl;
+                memcpy(head,intToBytes(ws_id,2),2);
+                memcpy(info,head,HEAD_LEN);
+                memcpy(info+HEAD_LEN,data_buff.c_str(),data_len);
+                send(WS_TCP_CON_ID,info,data_len+HEAD_LEN+1,MSG_NOSIGNAL);
+                return RES_SUCC;
+            }
+            case RosRealState_RES :{
+                ws_id = GetWs_connectID(w->fd);
+                if(ws_id==RES_UNEXIST){
+                    printf("the ws_id isn't exist!\n");
+                    return RES_FAIL;
+                }
+                cout<<"ws_id3:"<<ws_id<<endl;
+                memcpy(head,intToBytes(ws_id,2),2);
+                memcpy(head+2,intToBytes(data_len,4),4);
+                memcpy(info,head,HEAD_LEN);
+                memcpy(info+HEAD_LEN,data_buff.c_str(),data_len);
+                send(WS_TCP_CON_ID,info,data_len+HEAD_LEN,MSG_NOSIGNAL);
+                return RES_SUCC;
+            }
+            case CONTRAL_RES :{
+
+            }
+            case ArriveCrossing_RES :{
+
+            }
+            defualt:return UKONOW_ERROR;
+        }
+
+    }else{
+            printf("catch an error when decoding json!\n");
+    }
+
 }
 int ev_tcpServer::deal_recv_info_hardware(ev_io *w,string data_buff)
 { 
@@ -339,30 +463,61 @@ int ev_tcpServer::deal_send_info(ev_io *w,string data_buff){
 	root["name"]="zbl";
 	string strValue= writer.write(root);//root.toStyledString();
 }
+
+
 byte* ev_tcpServer::intToBytes(int value,int byte_len){
-    if(byte_len>4||byte_len<1)
+       if(byte_len>4||byte_len<1)
     {
        cout<<"byte_len overflow!"<<endl;
         return 0;           
     }
-        byte *des = new byte[byte_len];  
-        des[0] = (byte) (value & 0xff);  // 低位(右边)的8个bit位    
-        if(byte_len==1)
-            return des;  
-        des[1] = (byte) ((value >> 8) & 0xff); //第二个8 bit位 
-        if(byte_len==2)
-            return des;   
-        des[2] = (byte) ((value >> 16) & 0xff); //第三个 8 bit位
-        if(byte_len==3)
-            return des;    
-        /** 
-         * (byte)((value >> 24) & 0xFF); 
-         * value向右移动24位, 然后和0xFF也就是(11111111)进行与运算 
-         * 在内存中生成一个与 value 同类型的值 
-         * 然后把这个值强制转换成byte类型, 再赋值给一个byte类型的变量 des[3] 
-         */  
-        des[3] = (byte) ((value >> 24) & 0xff); //第4个 8 bit位  
+    byte *des = new byte[byte_len]; 
+    switch(byte_len){
+            case 4:{ 
+                //四位
+                des[3] = (byte) (value & 0xff);
+                des[2] = (byte) ((value >> 8) & 0xff);
+                des[1] = (byte) ((value >> 16) & 0xff);
+                des[0] = (byte) ((value >> 24) & 0xff); 
+                break;
+            }    
+            case 3:{
+                //三位
+                des[2] = (byte) (value & 0xff);
+                des[1] = (byte) ((value >>8) & 0xff);
+                des[0] = (byte) ((value >>16) & 0xff); 
+                break;
+            }
+        case 2:{
+                //二位
+                des[1] = (byte) (value& 0xff);
+                des[0] = (byte) ((value >>8) & 0xff); 
+                break;   
+        }
+        case 1:{
+                //一位
+                des[0] = (byte) (value & 0xff);
+                break; 
+        }      
+        }  
         return des;  
+        // des[0] = (byte) (value & 0xff);  // 低位(右边)的8个bit位    
+        // if(byte_len==1)
+        //     return des;  
+        // des[1] = (byte) ((value >> 8) & 0xff); //第二个8 bit位 
+        // if(byte_len==2)
+        //     return des;   
+        // des[2] = (byte) ((value >> 16) & 0xff); //第三个 8 bit位
+        // if(byte_len==3)
+        //     return des;    
+        // /** 
+        //  * (byte)((value >> 24) & 0xFF); 
+        //  * value向右移动24位, 然后和0xFF也就是(11111111)进行与运算 
+        //  * 在内存中生成一个与 value 同类型的值 
+        //  * 然后把这个值强制转换成byte类型, 再赋值给一个byte类型的变量 des[3] 
+        //  */  
+        // des[3] = (byte) ((value >> 24) & 0xff); //第4个 8 bit位  
+         
     }  
   
     /** 
@@ -372,8 +527,7 @@ byte* ev_tcpServer::intToBytes(int value,int byte_len){
      * @return 
      */  
 int ev_tcpServer::bytesToInt(byte* des, int byte_len){
-        if(byte_len>4||byte_len<1)
-        {
+        if(byte_len>4||byte_len<1){
         cout<<"byte_len overflow!"<<endl;
         return 0;           
         }  
@@ -381,23 +535,23 @@ int ev_tcpServer::bytesToInt(byte* des, int byte_len){
         switch(byte_len){
             case 4:{ 
                 //四位
-                value = (int)((des[0] & 0xff)  
-                | ((des[1] & 0xff) << 8)  
-                | ((des[2] & 0xff) << 16)  
-                | (des[3] & 0xff) << 24);
+                value = (int)((des[3] & 0xff)  
+                | ((des[2] & 0xff) << 8)  
+                | ((des[1] & 0xff) << 16)  
+                | (des[0] & 0xff) << 24);
                 break;
             }    
             case 3:{
                 //三位
-                value = (int) ((des[0] & 0xff)  
+                value = (int) ((des[2] & 0xff)  
                 | ((des[1] & 0xff) << 8)  
-                | ((des[2] & 0xff) << 16));
+                | ((des[0] & 0xff) << 16));
                 break;
             }
         case 2:{
                 //二位
-                value = (int) ((des[0] & 0xff)  
-                | ((des[1] & 0xff) << 8));
+                value = (int) ((des[1] & 0xff)  
+                | ((des[0] & 0xff) << 8));
                 break;   
         }
         case 1:{
@@ -407,26 +561,49 @@ int ev_tcpServer::bytesToInt(byte* des, int byte_len){
         }      
         }       
         return value;  
-    }   
+    }    
 string ev_tcpServer::GetTime(){
         time_t t = time( 0 );   
         char tmpBuf[255];   
         strftime(tmpBuf, 255, "%Y-%m-%d %H:%M:%S", localtime(&t)); //format date and time.
         return tmpBuf; 
 }
-
-string ev_tcpServer::decodejson(string json_data ,int type){ 
-    Json::Reader reader;
-    Json::Value value;
-     if(reader.parse(json_data,value)){
-        if(value["action"].isNull()){
-            return JSON_NULL;
-        }
+int ev_tcpServer::GetWs_connectID(int this_car_tcpId){
+    char sql[200];
+    int ws_id;
+    cout<<"select"<<endl;
+    sprintf(sql,"select ws_id from rel_user_car where tcp_id ='%d'",this_car_tcpId);
+    cout<<sql<<endl;
+    if(My_db->exeSQL(sql,SELECT,My_db->result))
+    {
+       //if()
+       cout<<"1111"<<endl;
+       My_db->row=mysql_fetch_row(My_db->result);
+       cout<<"ws_id:"<<My_db->row[0]<<endl;
+        ws_id=atoi(My_db->row[0]);
+        mysql_free_result(My_db->result);
+        My_db->result=NULL;
+        My_db->row=NULL;
+        return ws_id;   
     }
-    //string js;
-    switch(type){
-        case 1: return value["action"].asString();
-        case 2: return value["serial"].asString();
-        default : return JSON_NULL;
-    } 
+    else {
+        return RES_UNEXIST;
+    }
+     //cout<<"ws_id:"<<ws_id<<endl;
+    
 }
+// string ev_tcpServer::decodejson(string json_data ,int type){ 
+//     Json::Reader reader;
+//     Json::Value value;
+//      if(reader.parse(json_data,value)){
+//         if(value["action"].isNull()){
+//             return JSON_NULL;
+//         }
+//     }
+//     //string js;
+//     switch(type){
+//         case 1: return value["action"].asString();
+//         case 2: return value["serial"].asString();
+//         default : return JSON_NULL;
+//     } 
+// }

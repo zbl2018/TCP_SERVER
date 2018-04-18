@@ -12,8 +12,8 @@
 #
 #
 EXECUTABLE :=main   	 										# 可执行文件名
-LIBDIR:=/home/zbl/demo/lib /usr/lib/x86_64-linux-gnu /usr/local/lib					# 静态库目录
-LIBS :=pthread json cryptopp mysqlclient ev								# 静态库文件名 
+LIBDIR:=./lib /usr/lib/x86_64-linux-gnu /usr/local/lib					# 静态库目录
+LIBS :=pthread json mysqlclient ev								# 静态库文件名 
 INCLUDES:=/home/zbl/demo/include     									# 头文件目录
 SRCDIR:=            	 										# 除了当前目录外，其他的源代码文件目录
 #

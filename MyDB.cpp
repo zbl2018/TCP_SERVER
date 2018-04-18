@@ -46,7 +46,7 @@ bool MyDB::initDB(string host, string user, string pwd, string db_name)
 
 bool MyDB::exeSQL(string sql,int option,MYSQL_RES *&result)
 {
-	if(mysql_real_query(connection, sql.c_str(),sql.length()))
+	if(mysql_real_query(connection, sql.c_str(),sql.length()+1))
 	{
 		cout << "Query Error:" << mysql_error(connection);
 		return false;
@@ -62,8 +62,7 @@ bool MyDB::exeSQL(string sql,int option,MYSQL_RES *&result)
 					}
 		case SELECT :{
 						result = mysql_use_result(connection); // 获取结果集
-						// int num_fields = mysql_num_fields(result);
-						// cout<<"4"<<endl;
+						int num_fields = mysql_num_fields(result);
 						// while(row=mysql_fetch_row(result))
 						// {
 						// 	//mysql_fetch_field(My_db.row)
@@ -73,7 +72,17 @@ bool MyDB::exeSQL(string sql,int option,MYSQL_RES *&result)
 						// 	}
 						// 	cout<<endl;
 						// }
-						return result? true:false;
+						//cout<<"row00:"<<result->row_count<<endl;
+						if(num_fields>0){
+							//cout<<"true"<<endl;
+							cout<<"1111:"<<num_fields<<endl;
+							return true;
+						}
+						else {
+							mysql_free_result(result);
+							cout<<"row:"<<num_fields<<endl;
+							return false;
+							}
 		}
 		case UPDATE :{
 						printf("update sucessfully!\n");
